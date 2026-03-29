@@ -87,9 +87,11 @@ Sets `onboarded = true` and redirects to `/dashboard`. No file upload.
 
 | Type | Library | Field extracted |
 |---|---|---|
-| PDF | `pdf-parse` | `result.text` |
-| DOCX | `mammoth` | `result.value` (raw text) |
+| PDF | `pdf-parse` via `require()` | `result.text` |
+| DOCX | `mammoth` via `await import()` | `result.value` (raw text) |
 | TXT | `Buffer.toString('utf-8')` | raw string |
+
+**pdf-parse import gotcha:** must use `require('pdf-parse')` not `import(...).default` — the ESM build has no default export. Use dynamic `require` in the server action.
 
 Saved to `materials` table: `contentExtracted` (full text), `fileType`, `fileSizeBytes`, `isProcessed: true`.
 

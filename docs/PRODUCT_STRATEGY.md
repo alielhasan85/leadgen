@@ -134,7 +134,7 @@ Month 9+:   AppSumo, Saudi expansion
 ## Build Roadmap
 
 ```
-Week 1–2:   Auth + onboarding + Google Maps API          ✅ Done
+Week 1–2:   Auth + onboarding (3 steps) + Vercel deploy   ✅ Done
 Week 3–4:   Master DB + per-user leads + scraping
 Week 5–6:   Lead scoring + CRM CSV upload
 Week 7–8:   Claude email generation

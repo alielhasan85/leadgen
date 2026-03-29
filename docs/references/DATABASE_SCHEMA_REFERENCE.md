@@ -23,14 +23,17 @@
 
 ### `prisma.config.ts` (CLI / migrations)
 ```typescript
-// Uses DATABASE_URL_UNPOOLED (direct connection)
+// Uses DATABASE_URL_UNPOOLED (direct connection) for migrate commands only
+// datasource is conditional — not needed for prisma generate
 import { defineConfig } from 'prisma/config'
 import { config } from 'dotenv'
-config({ path: '.env' })
+config({ path: '.env' }) // no-op on Vercel (vars injected directly)
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
-  datasource: { url: process.env.DATABASE_URL_UNPOOLED },
+  ...(process.env.DATABASE_URL_UNPOOLED && {
+    datasource: { url: process.env.DATABASE_URL_UNPOOLED },
+  }),
 })
 ```
 
@@ -182,6 +185,8 @@ npx prisma generate
 ```
 
 Migration files live in `prisma/migrations/`. First migration: `20260329145814_init`.
+
+**Vercel build:** `package.json` build script is `prisma generate && next build` — generate must run before TS compilation or `@prisma/client` exports will be missing.
 
 ---
 

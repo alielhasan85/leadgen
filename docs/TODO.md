@@ -1,6 +1,7 @@
 # LeadGen GCC — Development TODO
 > Track progress here. Check boxes as you complete tasks.
 > Read CLAUDE.md first for full context and architecture decisions.
+> Last updated: 2026-03-29 — Session 1 complete (Phase 1 done)
 
 ---
 
@@ -11,9 +12,9 @@
 - [x] Configure Auth.js v5 (email/password + Google OAuth, session, middleware)
 - [x] Build onboarding wizard — Step 1: business name + industry
 - [x] Build onboarding wizard — Step 2: what they sell (plain text description)
-- [ ] Build onboarding wizard — Step 3: upload marketing materials (PDF/Word)
+- [x] Build onboarding wizard — Step 3: upload marketing materials (PDF/Word)
 - [ ] User settings page (update business info, change email, plan display)
-- [ ] Deploy to Vercel + configure all environment variables
+- [x] Deploy to Vercel + configure all environment variables
 
 ---
 

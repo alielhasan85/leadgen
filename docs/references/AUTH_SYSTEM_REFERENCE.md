@@ -19,7 +19,7 @@
 |---|---|
 | `auth.ts` | Auth.js config, providers, callbacks, events |
 | `app/api/auth/[...nextauth]/route.ts` | Route handler — exposes all auth endpoints |
-| `middleware.ts` | Protects dashboard routes (missing — create if needed) |
+| `proxy.ts` | Protects dashboard routes (Next.js 16 renamed middleware → proxy) |
 | `lib/actions/auth.actions.ts` | `sendMagicLinkAction()` server action |
 | `lib/auth/subscription.ts` | `ensureTrialSubscriptionForUser()` — called on new user |
 | `types/next-auth.d.ts` | Session type augmentation |
@@ -167,6 +167,8 @@ All auth pages use the `app/(auth)/layout.tsx` — centered card layout, no nav.
 - `next-auth` must be `^5.0.0-beta.x` — the schema uses v5 exports (`NextAuthConfig`, `next-auth/providers/resend`)
 - `OAuthAccountNotLinked` error shown when user tries Google OAuth with email that already has a magic-link account
 - `auth()` is wrapped in React `cache()` as `uncachedAuth` — use `auth()` for deduplication within a request
+- Next.js 16 renamed `middleware.ts` → `proxy.ts` — do not create a `middleware.ts` file
+- Google OAuth redirect URI must be added in Google Cloud Console for each environment (localhost + production domain)
 
 ---
 
