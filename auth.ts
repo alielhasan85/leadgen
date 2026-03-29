@@ -47,7 +47,7 @@ export const authConfig: NextAuthConfig = {
       apiKey: process.env.RESEND_API_KEY!,
       from: process.env.EMAIL_FROM || 'LeadGen GCC <noreply@leadgengcc.com>',
       maxAge: 15 * 60,
-      normalizeIdentifier: (id) => id.trim().toLowerCase(),
+      normalizeIdentifier: (id: string) => id.trim().toLowerCase(),
     }),
   ],
 
