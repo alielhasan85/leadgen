@@ -23,7 +23,7 @@ export default async function ProfilePage() {
         initialValues={{
           name: user.name ?? '',
           businessName: user.businessName ?? '',
-          industry: user.industry ?? '',
+          industry: (user.industry ?? undefined) as 'marketing_agency' | 'cctv' | 'food_supplier' | 'saas' | 'restaurant' | 'other' | undefined,
           whatTheySell: user.whatTheySell ?? '',
         }}
       />

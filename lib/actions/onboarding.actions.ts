@@ -20,7 +20,7 @@ export async function completeOnboardingAction(values: OnboardingValues): Promis
 
   const parsed = onboardingSchema.safeParse(values)
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? 'Invalid input' }
+    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' }
   }
 
   await prisma.user.update({
@@ -30,9 +30,9 @@ export async function completeOnboardingAction(values: OnboardingValues): Promis
       businessName: parsed.data.businessName,
       industry: parsed.data.industry,
       whatTheySell: parsed.data.whatTheySell,
-      onboarded: true,
+      // onboarded is set to true after step 3 (materials upload)
     },
   })
 
-  redirect('/dashboard')
+  redirect('/signup/materials')
 }

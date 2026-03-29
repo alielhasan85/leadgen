@@ -6,11 +6,11 @@
 
 ## Phase 1 — Project Setup & Auth (Week 1)
 
-- [ ] Initialise Next.js project with TypeScript (App Router, src/ structure, ESLint, Prettier)
-- [ ] Set up Neon PostgreSQL + Prisma ORM (connection string, schema.prisma, migrations)
-- [ ] Configure Auth.js v5 (email/password + Google OAuth, session, middleware)
-- [ ] Build onboarding wizard — Step 1: business name + industry
-- [ ] Build onboarding wizard — Step 2: what they sell (plain text description)
+- [x] Initialise Next.js project with TypeScript (App Router, src/ structure, ESLint, Prettier)
+- [x] Set up Neon PostgreSQL + Prisma ORM (connection string, schema.prisma, migrations)
+- [x] Configure Auth.js v5 (email/password + Google OAuth, session, middleware)
+- [x] Build onboarding wizard — Step 1: business name + industry
+- [x] Build onboarding wizard — Step 2: what they sell (plain text description)
 - [ ] Build onboarding wizard — Step 3: upload marketing materials (PDF/Word)
 - [ ] User settings page (update business info, change email, plan display)
 - [ ] Deploy to Vercel + configure all environment variables

@@ -57,7 +57,7 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     async signIn({ user }) {
       // Block disabled accounts
-      if ((user as Record<string, unknown>)?.isActive === false) {
+      if ((user as unknown as Record<string, unknown>)?.isActive === false) {
         return '/login?error=disabled'
       }
       return true
@@ -67,8 +67,8 @@ export const authConfig: NextAuthConfig = {
       if (!session?.user || !user) return session
 
       session.user.id = user.id
-      session.user.onboarded = (user as Record<string, unknown>).onboarded as boolean ?? false
-      session.user.isActive = (user as Record<string, unknown>).isActive !== false
+      session.user.onboarded = (user as unknown as Record<string, unknown>).onboarded as boolean ?? false
+      session.user.isActive = (user as unknown as Record<string, unknown>).isActive !== false
 
       return session
     },
