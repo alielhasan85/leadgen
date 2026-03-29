@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"cd /d d:\\\\nextjs\\\\leadgen\\\\leadgen && npx shadcn@latest init -d\")",
+      "Bash(powershell -Command \"Get-Command node, npm, npx -ErrorAction SilentlyContinue | Select-Object Name, Source\")",
+      "Bash(d:/nextjs/leadgen/leadgen/node_modules/.bin/shadcn --version)"
+    ]
+  }
+}
