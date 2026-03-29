@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 
 /**
  * Creates a 7-day free trial subscription for new users.

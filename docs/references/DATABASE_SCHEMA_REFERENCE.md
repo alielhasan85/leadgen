@@ -37,7 +37,7 @@ export default defineConfig({
 })
 ```
 
-### `lib/prisma.ts` (runtime singleton)
+### `lib/db.ts` (runtime singleton)
 ```typescript
 // Uses DATABASE_URL (pooled via Neon serverless)
 import { PrismaNeon } from '@prisma/adapter-neon'
@@ -120,6 +120,7 @@ Cron query: `where: { scheduledFor: { lte: now }, status: 'PENDING_APPROVAL' }`
 
 ### `materials`
 Uploaded PDF/DOCX/TXT files. `contentExtracted` = full parsed text used in AI prompts.
+`deletedAt` = soft delete field (null = active). Always filter `where: { deletedAt: null }` when querying.
 
 ### `existing_contacts`
 Imported from user's CRM CSV. Used for deduplication — skip leads whose email is here.

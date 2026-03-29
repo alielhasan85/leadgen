@@ -4,7 +4,7 @@ import Google from 'next-auth/providers/google'
 import Resend from 'next-auth/providers/resend'
 import { cache } from 'react'
 import { PrismaAdapter } from '@auth/prisma-adapter'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 import { ensureTrialSubscriptionForUser } from '@/lib/auth/subscription'
 
 const isProd = process.env.NODE_ENV === 'production'

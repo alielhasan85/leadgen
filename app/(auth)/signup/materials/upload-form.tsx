@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { uploadMaterialsAction, skipMaterialsAction } from '@/lib/actions/materials.actions'
+import { uploadMaterialsAction, skipMaterialsAction } from './_actions/materials'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 

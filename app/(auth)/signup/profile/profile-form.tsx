@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { completeOnboardingAction, type OnboardingValues } from '@/lib/actions/onboarding.actions'
+import { completeOnboardingAction, type OnboardingValues } from './_actions/onboarding'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

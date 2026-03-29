@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 import { z } from 'zod'
 
 const onboardingSchema = z.object({
@@ -30,7 +30,6 @@ export async function completeOnboardingAction(values: OnboardingValues): Promis
       businessName: parsed.data.businessName,
       industry: parsed.data.industry,
       whatTheySell: parsed.data.whatTheySell,
-      // onboarded is set to true after step 3 (materials upload)
     },
   })
 

@@ -1,6 +1,6 @@
 # Onboarding Reference
 
-> **Last Updated:** 2026-03-29
+> **Last Updated:** 2026-03-29 (Session 2)
 > **Status:** Production (all 3 steps complete)
 > **Tech:** Next.js App Router, Server Actions, pdf-parse, mammoth
 
@@ -130,8 +130,21 @@ if (session.user.onboarded) redirect('/dashboard')  // skip if already done
 
 ---
 
+## Post-Onboarding: Settings
+
+Users who skip step 3 (or want to update files) can manage materials at `/settings/materials`.
+
+| File | Purpose |
+|---|---|
+| `app/(dashboard)/settings/materials/page.tsx` | Server component — loads materials, renders manager |
+| `app/(dashboard)/settings/materials/materials-manager.tsx` | Client component — list, upload, soft-delete |
+| `lib/actions/materials.actions.ts` | `uploadSettingsMaterialsAction()` + `deleteMaterialAction()` |
+
+- `deletedAt` soft delete field added to `Material` model (migration `20260329170001_add_material_deleted_at`)
+- All queries filter `where: { userId, deletedAt: null }`
+- Dashboard shows amber banner when `materialCount === 0` with link to settings
+
 ## Future
 
 - Onboarding progress bar (step indicator component)
-- Edit materials from `/settings/materials` (re-upload, delete)
 - `aiSummary` field: run Claude on uploaded content to generate a short summary for use in prompts

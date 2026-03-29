@@ -1,121 +1,146 @@
 # LeadGen GCC — Development TODO
 > Track progress here. Check boxes as you complete tasks.
 > Read CLAUDE.md first for full context and architecture decisions.
-> Last updated: 2026-03-29 — Session 1 complete (Phase 1 done)
+> Last updated: 2026-03-29 — Session 3 complete (app shell + feature-first refactor)
 
 ---
 
-## Phase 1 — Project Setup & Auth (Week 1)
+## Phase 1 — Project Setup & Auth ✅ DONE
 
 - [x] Initialise Next.js project with TypeScript (App Router, src/ structure, ESLint, Prettier)
 - [x] Set up Neon PostgreSQL + Prisma ORM (connection string, schema.prisma, migrations)
-- [x] Configure Auth.js v5 (email/password + Google OAuth, session, middleware)
-- [x] Build onboarding wizard — Step 1: business name + industry
-- [x] Build onboarding wizard — Step 2: what they sell (plain text description)
-- [x] Build onboarding wizard — Step 3: upload marketing materials (PDF/Word)
-- [ ] User settings page (update business info, change email, plan display)
+- [x] Configure Auth.js v5 (Google OAuth + magic link, session, proxy middleware)
+- [x] Build onboarding wizard — Step 1+2: business name, industry, what they sell
+- [x] Build onboarding wizard — Step 3: upload marketing materials (PDF/DOCX/TXT)
+- [x] User settings — Materials page (`/settings/materials` — view, upload, soft-delete)
 - [x] Deploy to Vercel + configure all environment variables
+- [x] App shell — collapsible sidebar, user menu dropdown, sign out (`components/layout/app-sidebar.tsx`)
+- [x] Scaffold pages for all sidebar sections (Discover, Leads, Outreach, Campaigns, Contacts, Analytics, Settings)
+- [x] Feature-first architecture — actions/queries co-located in `_actions/` / `_queries/` per route
+- [x] Codebase cleanup — `lib/db.ts`, `lib/file-parser.ts`, deleted `lib/actions/`, `lib/prisma.ts`, `block/`
+- [ ] User settings — Business info page (update name, industry, whatTheySell, email)
 
 ---
 
-## Phase 2 — Master Business Database (Week 2–3)
+## Phase 2 — Master Business Database & Enrichment
 
-- [ ] Create master_businesses table in Prisma schema (all fields including last_enriched_at)
-- [ ] Google Maps Places API — Text Search endpoint (search by keyword + city)
-- [ ] Google Maps Places API — Place Details endpoint (enrich each result with phone, website, etc.)
-- [ ] Website scraper with Puppeteer (detect: menu, QR code, Instagram link, contact info)
+- [x] master_businesses schema defined in Prisma (all fields — done in Session 1)
+- [ ] Google Maps Places API — Text Search (keyword + city → list of places)
+- [ ] Google Maps Places API — Place Details (enrich each result: phone, website, hours)
+- [ ] Website scraper with Puppeteer:
+  - [ ] Detect: digital menu, QR code, Instagram link, online ordering
+  - [ ] Extract: contact email, phone number from contact page
+  - [ ] Extract: logo URL (og:image or favicon)
 - [ ] Instagram basic check — direct HTTP (followers, post count, last post date)
-- [ ] Data freshness logic (if last_enriched_at > 30 days → re-enrich in background)
-- [ ] Deduplication by google_place_id (update if exists, insert if new)
+- [ ] Deduplication by google_place_id (upsert — update if exists, insert if new)
+- [ ] Data freshness logic (last_enriched_at > 30 days → re-enrich in background)
+- [ ] Add logoUrl field to master_businesses schema + migration
 
 ---
 
-## Phase 3 — Per-User Leads & Scoring (Week 3–4)
+## Phase 3 — Company Profiles & Contacts (CRM Foundation)
 
-- [ ] Create user_leads table in Prisma (user_id + master_business_id + score + status)
+- [ ] BusinessContact model in Prisma schema:
+  - userId + masterBusinessId (per-user, private)
+  - name, email, phone, title/designation
+  - source: "scraped" | "manual" | "reply" | "csv_import"
+  - isPrimary flag (main contact for outreach)
+- [ ] Auto-populate primary contact from website scraping (if email found)
+- [ ] User can manually add / edit / remove contacts on a company
+- [ ] When a reply comes from a new person → prompt to save as new contact
+- [ ] CRM CSV/Excel upload (ExcelJS → existing_contacts table)
+- [ ] Duplicate suppression (cross-reference leads vs existing_contacts)
+
+---
+
+## Phase 4 — Per-User Leads, Scoring & Discovery UI
+
+- [ ] Campaign creation flow (sector + city + area + language + tone → triggers discovery)
 - [ ] Lead scoring engine — general signals (digital presence, maturity, reputation, activity)
-- [ ] Lead scoring engine — sector templates (restaurants first, then agencies, CCTV, suppliers)
-- [ ] CRM CSV/Excel upload using ExcelJS (extract contacts → existing_contacts table)
-- [ ] Duplicate suppression (cross-reference leads vs existing_contacts, flag is_duplicate)
-- [ ] Campaign creation flow (user picks sector + city + score filter → triggers discovery)
-
----
-
-## Phase 4 — Lead Dashboard & Pipeline (Week 4–5)
-
+- [ ] Lead scoring engine — sector templates (restaurants first, then agencies, CCTV)
+- [ ] AI lead summary card per lead (2–3 line snapshot: key signals + why it scored Hot/Warm/Cold)
 - [ ] Leads list view (name, area, score badge, status, last activity — sortable + filterable)
-- [ ] Lead detail page/drawer (full profile: Google data, website info, Instagram stats, score breakdown)
-- [ ] Pipeline kanban view (Found → Sent → Opened → Replied → Meeting → Closed)
-- [ ] Lead status management (manual update, log every change with timestamp)
-- [ ] Lead suppression (Not interested / Wrong contact — hides from that user only)
+- [ ] Lead detail drawer / company profile page:
+  - [ ] Google data (rating, reviews, price level, address)
+  - [ ] Website signals (has menu? QR? online order? logo)
+  - [ ] Instagram signals (followers, last post, active?)
+  - [ ] Score breakdown (why Hot/Warm/Cold — per signal)
+  - [ ] AI lead summary card
+  - [ ] Contacts section (list of contacts, add/edit/remove)
+  - [ ] Interaction timeline (emails sent, replies, status changes)
+- [ ] User can edit any field on a company profile (manual override)
+- [ ] Pipeline kanban view (Found → Contacted → Replied → Meeting → Won / Lost)
+- [ ] Lead suppression (Not interested / Wrong contact — this user only)
 - [ ] Search + filter UI (score, status, sector, city, campaign, date range)
 
 ---
 
-## Phase 5 — AI Email Generation (Week 5–6)
+## Phase 5 — AI Email Generation
 
-- [ ] Marketing materials upload (pdf-parse for PDF, ExcelJS for Word/Excel → store in materials table)
-- [ ] Claude API integration (claude-sonnet-4-20250514, system prompt includes user materials + lead)
-- [ ] Email generation prompt (per-lead personalization: name, area, sector, Instagram stats, value prop)
-- [ ] Arabic / English language toggle (per campaign, passed as instruction to Claude)
-- [ ] Tone selector (Friendly / Professional / Formal — passed to Claude)
-- [ ] Bulk email generation for all Hot leads in a campaign (progress indicator, stream results)
-
----
-
-## Phase 6 — Approval UI & Sending (Week 7–8)
-
-- [ ] Email approval queue UI (list of drafts: subject + body preview per lead)
-- [ ] Approve / Edit / Reject actions (edit = inline editor, reject = rejected status)
-- [ ] Bulk approve UI (select all → approve all with count confirmation before proceeding)
-- [ ] Resend SMTP integration (configure sender, handle bounces)
-- [ ] ⚠️ Send gate — hard rule: sendEmail() checks status === 'approved' before EVERY send
-- [ ] Open tracking (tracking pixel → on open: update opened_at + lead status to Opened)
+- [ ] Claude API integration (claude-sonnet-4-20250514 via lib/claude.ts)
+- [ ] System prompt builds from: user materials + lead data + AI summary + contact name
+- [ ] Email generation prompt (personalized: company name, area, sector signals, value prop)
+- [ ] Arabic / English language toggle (per campaign)
+- [ ] Tone selector (Friendly / Professional / Formal)
+- [ ] Bulk generation for all Hot leads in a campaign (progress indicator)
 
 ---
 
-## Phase 7 — Follow-Ups & Automation (Week 9–10)
+## Phase 6 — Approval UI & Sending
 
-- [ ] Follow-up schedule settings (user sets wait days: 3/5/7, max 2 follow-ups per lead)
-- [ ] Vercel Cron job — daily check (find leads: sent + no reply + scheduled_for <= now)
-- [ ] Follow-up email generation via Claude (contextual, references original email)
-- [ ] Follow-up approval queue (same UI as initial emails, status: pending_approval)
-- [ ] Sequence stop logic (lead replies → cancel ALL pending follow-ups for that lead)
-- [ ] Reply detection via Resend webhook (update replied_at + lead status automatically)
+- [ ] Email approval queue (drafts list: subject + body preview per lead + contact name)
+- [ ] Approve / Edit inline / Reject per email
+- [ ] Bulk approve UI (select all → confirm count → approve)
+- [ ] Resend SMTP integration (configure sender domain, handle bounces)
+- [ ] ⚠️ Send gate — sendEmail() checks status === 'approved' before EVERY send
+- [ ] Open tracking (pixel → on open: update opened_at + lead status)
 
 ---
 
-## Phase 8 — Analytics & Launch (Week 11–12)
+## Phase 7 — Follow-Ups & Automation
 
-- [ ] Analytics dashboard (reply rate, open rate, conversion rate — per campaign + overall)
-- [ ] Best performing subject lines (ranked by open rate across user's campaigns)
-- [ ] Anonymous platform signals (log outcome: sector + day + result, no user identity)
-- [ ] Menumize internal beta test (full flow: Doha restaurants → score → generate → approve → send → track)
-- [ ] Bug fixing & polish from beta test results
-- [ ] First 5 external beta users (2 agencies + 2 CCTV companies + 1 food supplier in Qatar)
+- [ ] Follow-up schedule settings (wait days: 3/5/7, max 2 per lead)
+- [ ] Vercel Cron — daily check (sent + no reply + scheduled_for <= now)
+- [ ] Follow-up generation via Claude (contextual, references original email)
+- [ ] Follow-up approval queue (same UI, status: pending_approval)
+- [ ] Sequence stop logic (lead replies → cancel ALL pending follow-ups)
+- [ ] Reply detection via Resend webhook (update replied_at + status automatically)
+
+---
+
+## Phase 8 — Analytics & Launch
+
+- [ ] Analytics dashboard (reply rate, open rate, conversion — per campaign + overall)
+- [ ] Best performing subject lines (ranked by open rate)
+- [ ] Anonymous platform signals (sector + day + outcome, no user identity)
+- [ ] Menumize internal beta (Doha restaurants → full loop end-to-end)
+- [ ] Bug fixing from beta results
+- [ ] First 5 external beta users (2 agencies + 2 CCTV + 1 food supplier in Qatar)
 
 ---
 
 ## Hard Rules — Never Break These
 
-- [ ] Every send checks `status === 'approved'` — no exceptions
-- [ ] Every DB query scoped to `user_id` — no exceptions
-- [ ] Never hard delete — only soft delete / archive
-- [ ] No auto-send — follow-ups are always pending_approval first
-- [ ] master_businesses is never scoped to user_id — it is platform-wide
-- [ ] Scores are calculated per user — never stored in master_businesses
+- Every send checks `status === 'approved'` — no exceptions
+- Every Layer 2 query scoped to `userId` — no exceptions
+- Soft delete only — never `prisma.X.delete()`
+- No auto-send — follow-ups always pending_approval first
+- master_businesses never scoped to userId — platform-wide
+- business_contacts are per-user — never shared across users
+- Scores calculated per user — never stored in master_businesses
 
 ---
 
 ## Post-MVP Backlog (Do Not Build Yet)
 
-- [ ] Gmail / Outlook OAuth
-- [ ] Email history analysis
+- [ ] Multi-user team accounts (invite teammates, roles)
+- [ ] Quotation / deal tracking per lead
+- [ ] Inbox — full reply thread view with conversation history
+- [ ] Gmail / Outlook OAuth (send from user's own domain)
 - [ ] HubSpot / Zoho live CRM sync
-- [ ] WhatsApp Business API (Unifonic)
-- [ ] SMS outreach
-- [ ] AI reply handling
-- [ ] Team / multi-user accounts
+- [ ] WhatsApp Business API outreach (Unifonic)
+- [ ] AI reply handling (auto-detect intent, suggest response)
 - [ ] White-label mode
-- [ ] Platform benchmark dashboard
+- [ ] Platform benchmark dashboard (GCC sector averages)
 - [ ] Advanced social analytics (engagement rate, story activity)
+- [ ] Calendly / meeting booking integration

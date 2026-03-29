@@ -3,10 +3,6 @@
 import { signIn } from '@/auth'
 import { AuthError } from 'next-auth'
 
-/**
- * Sends a magic link email via the Resend provider.
- * Returns success/error so the client can redirect to /check-email.
- */
 export async function sendMagicLinkAction(
   email: string,
 ): Promise<{ success: boolean; error?: string }> {
