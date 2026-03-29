@@ -1,114 +1,82 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-'use client';
+'use client'
 
-import * as React from 'react';
-import Image from 'next/image';
-import { useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-import { Button, Card, CardContent, Input, Label } from '@menumize/ui';
-import { cn } from '@menumize/utils';
-import { signIn } from 'next-auth/react';
-
-import loginImg from '@/public/login-img.jpg';
-import TermsOfServiceModal from '@/components/modals/TermsOfServiceModal';
-import PrivacyPolicyModal from '@/components/modals/PrivacyPolicyModal';
-import { sendMagicLinkAction } from '@/lib/actions/auth.actions';
+import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
+import { signIn } from 'next-auth/react'
+import { sendMagicLinkAction } from '@/lib/actions/auth.actions'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 
 interface LoginFormProps extends React.HTMLAttributes<HTMLDivElement> {
-  locale: string;
-  error?: string;
-  email?: string;
+  error?: string
+  email?: string
 }
 
-export function LoginForm({
-  className,
-  locale,
-  error: errorProp,
-  email: emailProp,
-  ...props
-}: LoginFormProps) {
-  const t = useTranslations('auth.login');
-  const searchParams = useSearchParams();
+export function LoginForm({ className, error: errorProp, email: emailProp, ...props }: LoginFormProps) {
+  const searchParams = useSearchParams()
 
-  const [isMagicLoading, setIsMagicLoading] = React.useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = React.useState(false);
+  const [isMagicLoading, setIsMagicLoading] = React.useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(errorProp ?? null)
+  const [emailValue, setEmailValue] = React.useState(emailProp ?? '')
 
-  const [error, setError] = React.useState<string | null>(errorProp ?? null);
-  const [emailFromUrl, setEmailFromUrl] = React.useState<string>(emailProp ?? '');
+  const queryError = searchParams.get('error') ?? undefined
+  const showLinkedWarning = (errorProp ?? queryError) === 'OAuthAccountNotLinked'
 
-  const [isTermsOpen, setIsTermsOpen] = React.useState(false);
-  const [isPrivacyOpen, setIsPrivacyOpen] = React.useState(false);
-
-  // Determine if we should show the inline warning
-  const queryError = searchParams.get('error') || undefined;
-  const showLinkedWarning = (errorProp ?? queryError) === 'OAuthAccountNotLinked';
-
-  // Pick up ?email and map error messages to friendly text
   React.useEffect(() => {
-    const em = searchParams.get('email');
-    if (!emailProp && em) setEmailFromUrl(em);
+    const em = searchParams.get('email')
+    if (!emailProp && em) setEmailValue(em)
 
-    const code = errorProp ?? queryError ?? null;
+    const code = errorProp ?? queryError ?? null
     if (code === 'OAuthAccountNotLinked') {
-      setError(
-        t('errors.oauthAccountNotLinked', {
-          default:
-            'This email already has an account. Please sign in with a magic link first, then link Google from Settings → Connections.',
-        }),
-      );
+      setError('This email already has an account. Sign in with a magic link first, then link Google from Settings.')
     } else if (code === 'EmailSignin') {
-      setError(t('errors.emailSignIn', { default: 'We couldn’t sign you in by email.' }));
+      setError("We couldn't sign you in by email. Please try again.")
+    } else if (code === 'disabled') {
+      setError('Your account has been disabled. Please contact support.')
     } else if (code) {
-      setError(t('errors.unexpectedError', { default: 'Something went wrong. Please try again.' }));
-    } else if (!code && !errorProp) {
-      setError(null);
+      setError('Something went wrong. Please try again.')
+    } else {
+      setError(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, emailProp, errorProp]);
+  }, [searchParams, emailProp, errorProp])
 
   async function handleGoogle() {
     try {
-      setIsGoogleLoading(true);
-      // Force account chooser to avoid the sticky Google profile
-      await signIn('google', { redirectTo: `/${locale}`, prompt: 'select_account' });
+      setIsGoogleLoading(true)
+      await signIn('google', { redirectTo: '/dashboard', prompt: 'select_account' })
     } finally {
-      setIsGoogleLoading(false);
-    }
-  }
-
-  async function sendMagic(to: string) {
-    if (!to.trim()) return;
-    setIsMagicLoading(true);
-    setError(null);
-    try {
-      // ✅ Use rate-limited server action (3 requests per 5 minutes per email)
-      const result = await sendMagicLinkAction(to.trim().toLowerCase());
-
-      if (!result.success) {
-        // Show user-friendly error message (includes rate limit message)
-        setError(result.error);
-        return;
-      }
-
-      // Success! Redirect to check-email page
-      window.location.href = `/${locale}/check-email?email=${encodeURIComponent(to)}`;
-    } catch (e) {
-      console.error('Magic link error', e);
-      setError(t('errors.unexpectedError', { default: 'Something went wrong. Please try again.' }));
-    } finally {
-      setIsMagicLoading(false);
+      setIsGoogleLoading(false)
     }
   }
 
   async function handleMagicSubmit(ev: React.FormEvent<HTMLFormElement>) {
-    ev.preventDefault();
-    const formData = new FormData(ev.currentTarget);
-    const email = (formData.get('email') as string) || '';
-    if (!email.trim()) {
-      setError(t('errors.emailRequired', { default: 'Email is required.' }));
-      return;
+    ev.preventDefault()
+    const formData = new FormData(ev.currentTarget)
+    const email = (formData.get('email') as string).trim()
+    if (!email) {
+      setError('Email is required.')
+      return
     }
-    await sendMagic(email);
+
+    setIsMagicLoading(true)
+    setError(null)
+    try {
+      const result = await sendMagicLinkAction(email.toLowerCase())
+      if (!result.success) {
+        setError(result.error ?? 'Failed to send magic link.')
+        return
+      }
+      window.location.href = `/check-email?email=${encodeURIComponent(email)}`
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setIsMagicLoading(false)
+    }
   }
 
   return (
@@ -118,130 +86,99 @@ export function LoginForm({
           {/* Left: Form */}
           <form className="p-6 md:p-8 space-y-6" onSubmit={handleMagicSubmit}>
             <div className="flex flex-col items-center text-center space-y-1">
-              <h1 className="text-2xl font-bold">{t('title', { default: 'Welcome back' })}</h1>
-              <p className="text-muted-foreground">
-                {t('subtitle', { default: 'Login to your MenuMize account' })}
-              </p>
+              <h1 className="text-2xl font-bold">Welcome back</h1>
+              <p className="text-muted-foreground text-sm">Sign in to your LeadGen GCC account</p>
             </div>
 
-            {/* Inline warning for OAuthAccountNotLinked */}
             {showLinkedWarning && (
               <div
                 role="alert"
-                className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm space-y-2"
+                className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm space-y-1"
               >
-                <div className="font-medium">
-                  {t('linkedTitle', { default: 'Use your email to sign in' })}
-                </div>
-                <p>
-                  {t('linkedBody', {
-                    default:
-                      'It looks like you already have an account with this email. Please sign in with a magic link first, then link Google from Settings → Connections.',
-                  })}
-                </p>
+                <div className="font-medium">Use your email to sign in</div>
+                <p>This email already has an account. Sign in with a magic link first, then link Google from Settings.</p>
               </div>
             )}
 
-            {/* Email */}
-            <div className="grid gap-3">
-              <Label htmlFor="email">{t('email', { default: 'Email' })}</Label>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 name="email"
                 type="email"
                 autoComplete="email"
                 required
-                placeholder={t('emailPlaceholder', { default: 'email@example.com' })}
-                defaultValue={emailFromUrl}
+                placeholder="you@company.com"
+                value={emailValue}
+                onChange={(e) => setEmailValue(e.target.value)}
                 disabled={isMagicLoading}
               />
               <p className="text-xs text-muted-foreground">
-                {t('magicHint', { default: 'We’ll email you a secure sign-in link.' })}
+                We&apos;ll email you a secure sign-in link.
               </p>
             </div>
 
-            {/* Error (don’t duplicate when the yellow notice is shown) */}
             {error && !showLinkedWarning && (
-              <div className="text-destructive text-sm font-medium" aria-live="polite">
+              <p className="text-destructive text-sm font-medium" role="alert">
                 {error}
-              </div>
+              </p>
             )}
 
-            {/* Send magic link */}
             <Button type="submit" className="w-full" disabled={isMagicLoading}>
-              {isMagicLoading
-                ? t('sendingLink', { default: 'Sending link…' })
-                : t('sendMagic', { default: 'Email me a magic link' })}
+              {isMagicLoading ? 'Sending link…' : 'Email me a magic link'}
             </Button>
 
-            {/* Google button — hidden in linked-warning mode */}
             {!showLinkedWarning && (
               <>
-                <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:border-t">
+                <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:border-t after:border-border">
                   <span className="bg-card text-muted-foreground relative z-10 px-2">
-                    {t('orContinueWith', { default: 'Or continue with' })}
+                    Or continue with
                   </span>
                 </div>
 
-                <div className="flex">
-                  <Button
-                    variant="outline"
-                    type="button"
-                    className="w-full relative bg-gray-50 hover:bg-gray-100"
-                    onClick={handleGoogle}
-                    disabled={isGoogleLoading}
-                  >
-                    <Image
-                      src="/google.svg"
-                      alt="google"
-                      width={24}
-                      height={24}
-                      className="h-6 w-6 object-cover"
-                    />
-                    <span>
-                      {isGoogleLoading
-                        ? t('redirecting', { default: 'Redirecting…' })
-                        : t('loginWithGoogle', { default: 'Continue with Google' })}
-                    </span>
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="w-full"
+                  onClick={handleGoogle}
+                  disabled={isGoogleLoading}
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                  </svg>
+                  <span>{isGoogleLoading ? 'Redirecting…' : 'Continue with Google'}</span>
+                </Button>
               </>
             )}
           </form>
 
-          {/* Right: Image */}
-          <div className="bg-muted relative hidden md:block">
-            <Image
-              src={loginImg}
-              alt="Image"
-              className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
-              priority
-            />
+          {/* Right: Brand panel */}
+          <div className="bg-primary relative hidden md:flex flex-col items-center justify-center p-8 text-primary-foreground">
+            <div className="space-y-4 text-center">
+              <div className="text-4xl font-bold">🎯</div>
+              <h2 className="text-2xl font-bold">Find 300 clients this month.</h2>
+              <p className="text-primary-foreground/80 text-sm">
+                AI-powered B2B lead generation for the GCC market.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Terms / Privacy */}
-      <div className="text-muted-foreground text-center text-xs">
-        {t('termsAgreement', { default: 'By clicking continue, you agree to our' })}{' '}
-        <button
-          className="text-xs text-primary underline underline-offset-3 hover:font-bold"
-          onClick={() => setIsTermsOpen(true)}
-        >
-          {t('termsOfService', { default: 'Terms of Service' })}
-        </button>{' '}
-        {t('and', { default: 'and' })}{' '}
-        <button
-          className="text-xs text-primary underline underline-offset-3 hover:font-bold"
-          onClick={() => setIsPrivacyOpen(true)}
-        >
-          {t('privacyPolicy', { default: 'Privacy Policy' })}
-        </button>
+      <p className="text-muted-foreground text-center text-xs">
+        By signing in you agree to our{' '}
+        <a href="/terms" className="underline underline-offset-3 hover:text-foreground">
+          Terms of Service
+        </a>{' '}
+        and{' '}
+        <a href="/privacy" className="underline underline-offset-3 hover:text-foreground">
+          Privacy Policy
+        </a>
         .
-      </div>
-
-      <TermsOfServiceModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
-      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
+      </p>
     </div>
-  );
+  )
 }

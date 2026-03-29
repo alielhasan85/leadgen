@@ -1,35 +1,29 @@
-// app/[locale]/(auth)/login/page.tsx
-
-import { redirect } from '@/i18n/navigation';
-import { auth } from '@/auth';
-import { LoginForm } from './login-form';
+import { redirect } from 'next/navigation'
+import { auth } from '@/auth'
+import { LoginForm } from './login-form'
 
 export default async function LoginPage({
-  params,
-  searchParams = {},
+  searchParams,
 }: {
-  params: { locale: string };
-  searchParams?: { [key: string]: string | string[] | undefined };
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const { locale } = await params;
-  const session = await auth();
+  const session = await auth()
 
-  // If already signed in, skip the page
   if (session?.user) {
-    if (session.user.profileComplete) {
-      redirect({ href: '/venues', locale });
+    if (session.user.onboarded) {
+      redirect('/dashboard')
     } else {
-      redirect({ href: '/signup/profile', locale });
+      redirect('/signup/profile')
     }
   }
 
-  const resolved = await searchParams;
-  const email = Array.isArray(resolved.email) ? resolved.email[0] : resolved.email;
-  const error = Array.isArray(resolved.error) ? resolved.error[0] : resolved.error;
+  const params = await searchParams
+  const email = Array.isArray(params?.email) ? params.email[0] : params?.email
+  const error = Array.isArray(params?.error) ? params.error[0] : params?.error
 
   return (
     <div className="w-full max-w-sm md:max-w-3xl">
-      <LoginForm locale={locale} email={email} error={error ?? undefined} />
+      <LoginForm email={email} error={error} />
     </div>
-  );
+  )
 }

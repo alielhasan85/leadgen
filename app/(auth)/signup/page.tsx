@@ -1,9 +1,6 @@
+import { redirect } from 'next/navigation'
 
-
-// apps/platform/app/[locale]/(auth)/signup/page.tsx
-import { redirect } from '@/i18n/navigation';
-
-export default async function SignupRedirect({ params }: { params: { locale: string } }) {
-  const { locale } = await params;
-  redirect({ href: '/login?mode=signup', locale });
+// /signup redirects to /login — sign-up is handled via the login page
+export default function SignupRedirect() {
+  redirect('/login')
 }

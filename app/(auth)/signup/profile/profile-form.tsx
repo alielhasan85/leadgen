@@ -1,232 +1,133 @@
-// apps/platform/app/[locale]/(auth)/signup/profile/profile-form.tsx
-'use client';
+'use client'
 
-import { useTransition } from 'react';
-import { useTranslations, useLocale } from 'next-intl';
-import { toast } from 'sonner';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import * as React from 'react'
+import { completeOnboardingAction, type OnboardingValues } from '@/lib/actions/onboarding.actions'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
-import { PhoneInput } from 'react-international-phone';
-import 'react-international-phone/style.css';
-
-import { BUSINESS_TYPES, COUNTRIES } from '@menumize/utils';
-import { profileSchema, type ProfileSchema } from '@/lib/validators/user.validator';
-import { finishOnboardingAction } from '@/lib/actions/auth/onboarding.actions';
-
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  Input,
-  Button,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@menumize/ui';
+const INDUSTRIES = [
+  { value: 'marketing_agency', label: 'Marketing Agency' },
+  { value: 'cctv', label: 'CCTV / Security' },
+  { value: 'food_supplier', label: 'Food Supplier' },
+  { value: 'saas', label: 'SaaS / Software' },
+  { value: 'restaurant', label: 'Restaurant / F&B' },
+  { value: 'other', label: 'Other' },
+] as const
 
 export default function ProfileForm({
-  initialValues = { name: '', phone: '', businessName: '' },
+  initialValues,
 }: {
-  initialValues?: Partial<ProfileSchema>;
+  initialValues?: Partial<OnboardingValues>
 }) {
-  const [isPending, startTransition] = useTransition();
-  const t = useTranslations('auth.profile');
-  const tConstants = useTranslations('constants');
-  const locale = useLocale();
+  const [isPending, startTransition] = React.useTransition()
+  const [error, setError] = React.useState<string | null>(null)
 
-  const defaultCountryCode = COUNTRIES.find((c) => c.code === 'QA')?.code ?? COUNTRIES[0].code;
+  const [values, setValues] = React.useState<OnboardingValues>({
+    name: initialValues?.name ?? '',
+    businessName: initialValues?.businessName ?? '',
+    industry: (initialValues?.industry as OnboardingValues['industry']) ?? 'other',
+    whatTheySell: initialValues?.whatTheySell ?? '',
+  })
 
-  const form = useForm<ProfileSchema>({
-    resolver: zodResolver(profileSchema),
-    defaultValues: {
-      name: initialValues.name ?? '',
-      phone: initialValues.phone ?? '',
-      businessName: initialValues.businessName ?? '',
-      businessType: BUSINESS_TYPES[0].value,
-      countryCode: initialValues.countryCode ?? defaultCountryCode,
-    },
-    mode: 'onTouched',
-  });
+  function set(field: keyof OnboardingValues, value: string) {
+    setValues((prev) => ({ ...prev, [field]: value }))
+  }
 
-  const onSubmit = (values: ProfileSchema) => {
+  function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault()
+    setError(null)
     startTransition(async () => {
-      try {
-        // Server action should normalize:
-        //   phone -> phoneE164 + phoneCountry
-        await finishOnboardingAction(values, locale);
-      } catch (err) {
-        console.error(err);
-        toast(
-          t('error', {
-            fallback: 'There was an error saving your profile. Please try again or sign in again.',
-          }),
-        );
-      }
-    });
-  };
+      const result = await completeOnboardingAction(values)
+      if (result?.error) setError(result.error)
+    })
+  }
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <Card>
-        <CardHeader className="space-y-4">
-          <CardTitle className="text-center">
-            {t('title', { fallback: 'Welcome to Menumize' })}
-          </CardTitle>
-          <CardDescription className="text-center">
-            {t('subtitle', { fallback: 'Tell us about yourself. What is your name?' })}
-          </CardDescription>
-        </CardHeader>
+    <Card>
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-2xl text-center">Welcome to LeadGen GCC</CardTitle>
+        <CardDescription className="text-center">
+          Tell us about your business so we can personalize your lead generation.
+        </CardDescription>
+      </CardHeader>
 
-        <CardContent className="space-y-4">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {/* Name */}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('name', { fallback: 'Name' })}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t('namePlaceholder', { fallback: 'Your name' })}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="name">Your name</Label>
+            <Input
+              id="name"
+              placeholder="Ali Hassan"
+              value={values.name}
+              onChange={(e) => set('name', e.target.value)}
+              required
+              disabled={isPending}
+            />
+          </div>
 
-              {/* Phone (raw input; server will normalize) */}
-              <FormField
-                control={form.control}
-                name="phone"
-                render={() => (
-                  <FormItem>
-                    <FormLabel>{t('phone', { fallback: 'Phone Number' })}</FormLabel>
-                    <FormControl>
-                      <Controller
-                        control={form.control}
-                        name="phone"
-                        render={({ field: { onChange, value } }) => (
-                          <PhoneInput
-                            // Use current country selection as the default for the phone picker
-                            defaultCountry={(form.watch('countryCode') || 'QA').toLowerCase()}
-                            preferredCountries={['qa', 'sa', 'ae', 'lb', 'tr']}
-                            forceDialCode
-                            value={value || ''}
-                            onChange={(v) => onChange(v)}
-                            className="w-full"
-                            inputClassName="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 shadow-xs"
-                            inputProps={{
-                              id: 'phone',
-                              name: 'phone',
-                              autoComplete: 'tel',
-                            }}
-                          />
-                        )}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          {/* Business name */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="businessName">Business name</Label>
+            <Input
+              id="businessName"
+              placeholder="Digital Growth Agency"
+              value={values.businessName}
+              onChange={(e) => set('businessName', e.target.value)}
+              required
+              disabled={isPending}
+            />
+          </div>
 
-              {/* Business name */}
-              <FormField
-                control={form.control}
-                name="businessName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('businessName', { fallback: 'Business Name' })}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t('businessNamePlaceholder', {
-                          fallback: 'Your business name',
-                        })}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          {/* Industry */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="industry">Industry</Label>
+            <select
+              id="industry"
+              value={values.industry}
+              onChange={(e) => set('industry', e.target.value)}
+              disabled={isPending}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {INDUSTRIES.map((ind) => (
+                <option key={ind.value} value={ind.value}>
+                  {ind.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {/* Business type */}
-              <FormField
-                control={form.control}
-                name="businessType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('businessType', { fallback: 'Business Type' })}</FormLabel>
-                    <FormControl>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {BUSINESS_TYPES.map((bt) => (
-                            <SelectItem key={bt.value} value={bt.value}>
-                              {tConstants(bt.translationKey, { fallback: bt.value })}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          {/* What they sell */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="whatTheySell">What do you sell?</Label>
+            <textarea
+              id="whatTheySell"
+              placeholder="e.g. Social media management for restaurants in Qatar"
+              value={values.whatTheySell}
+              onChange={(e) => set('whatTheySell', e.target.value)}
+              required
+              disabled={isPending}
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              This is used by AI to write personalized outreach emails on your behalf.
+            </p>
+          </div>
 
-              {/* Country (ISO-2) */}
-              <FormField
-                control={form.control}
-                name="countryCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('country', { fallback: 'Country' })}</FormLabel>
-                    <FormControl>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COUNTRIES.map((c) => (
-                            <SelectItem key={c.code} value={c.code}>
-                              {tConstants(c.translationKey, { fallback: c.code })}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          {error && (
+            <p className="text-destructive text-sm font-medium" role="alert">
+              {error}
+            </p>
+          )}
 
-              <div className="flex gap-4">
-                <Button type="submit" className="w-full" disabled={isPending}>
-                  {isPending
-                    ? t('submitting', { fallback: 'Submitting...' })
-                    : t('submit', { fallback: 'Start Free Trial' })}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
-  );
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending ? 'Saving…' : 'Start Free Trial'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
 }
