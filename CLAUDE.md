@@ -1,6 +1,6 @@
 # LeadGen GCC — Claude Code Context
 > Last updated: 2026-03-29 | Status: MVP In Development
-> **Start here:** Read `docs/README.md` for the full reference system.
+> **Start here:** Read `.docs/README.md` for the full reference system.
 
 ---
 
