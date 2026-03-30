@@ -1,4 +1,17 @@
-export default function SettingsProfilePage() {
+import { redirect } from 'next/navigation'
+import { auth } from '@/auth'
+import { prisma } from '@/lib/db'
+import ProfileForm from './profile-form'
+
+export default async function SettingsProfilePage() {
+  const session = await auth()
+  if (!session?.user?.id) redirect('/login')
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { name: true, businessName: true, industry: true, whatTheySell: true },
+  })
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -7,10 +20,14 @@ export default function SettingsProfilePage() {
           Update your business name, industry, and what you sell. The AI uses this when writing emails.
         </p>
       </div>
-      <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-12 text-center">
-        <p className="text-sm font-medium text-zinc-500">Coming soon</p>
-        <p className="text-xs text-zinc-400 mt-1">Edit name · industry · what you sell · email address</p>
-      </div>
+      <ProfileForm
+        initialValues={{
+          name: user?.name ?? '',
+          businessName: user?.businessName ?? '',
+          industry: (user?.industry as 'marketing_agency' | 'cctv' | 'food_supplier' | 'saas' | 'restaurant' | 'other') ?? 'other',
+          whatTheySell: user?.whatTheySell ?? '',
+        }}
+      />
     </div>
   )
 }

@@ -18,7 +18,7 @@
 - [x] Scaffold pages for all sidebar sections (Discover, Leads, Outreach, Campaigns, Contacts, Analytics, Settings)
 - [x] Feature-first architecture — actions/queries co-located in `_actions/` / `_queries/` per route
 - [x] Codebase cleanup — `lib/db.ts`, `lib/file-parser.ts`, deleted `lib/actions/`, `lib/prisma.ts`, `block/`
-- [ ] User settings — Business info page (update name, industry, whatTheySell, email)
+- [x] User settings — Business info page (update name, industry, whatTheySell) — email field deferred to Phase 2 settings
 
 ---
 

@@ -1,0 +1,36 @@
+'use server'
+
+import { auth } from '@/auth'
+import { prisma } from '@/lib/db'
+import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+
+const profileSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  businessName: z.string().min(1, 'Business name is required'),
+  industry: z.enum(['marketing_agency', 'cctv', 'food_supplier', 'saas', 'restaurant', 'other']),
+  whatTheySell: z.string().min(10, 'Please describe what you sell (at least 10 characters)'),
+})
+
+export type ProfileValues = z.infer<typeof profileSchema>
+
+export async function updateProfileAction(values: ProfileValues): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth()
+  if (!session?.user?.id) return { error: 'Not authenticated' }
+
+  const parsed = profileSchema.safeParse(values)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: {
+      name: parsed.data.name,
+      businessName: parsed.data.businessName,
+      industry: parsed.data.industry,
+      whatTheySell: parsed.data.whatTheySell,
+    },
+  })
+
+  revalidatePath('/settings/profile')
+  return { success: true }
+}
