@@ -1,15 +1,30 @@
 // ============================================================
 // LeadGen GCC — Prisma Schema
 // Stack: Next.js App Router · Neon PostgreSQL · Auth.js v5
-// Last updated: March 2026
+// Last updated: 2026-03-31
 // ============================================================
-// ARCHITECTURE: Two-layer data model
+//
+// DATA ARCHITECTURE — Three layers:
+//
+//   Layer 0 — User Config (per-user, owned by subscriber)
+//             Materials, ICP Templates — define who they are and who they target
+//
 //   Layer 1 — MasterBusiness (platform-owned, shared across all users)
-//             Public business data discovered from Google Maps
-//             Never scoped to a user — belongs to the platform
+//             Public business data discovered from Google Maps + website scraping
+//             One record per real-world business. Never scoped to a userId.
+//             Costs (Google API, Instagram check) paid ONCE per business.
+//
 //   Layer 2 — UserLead (private, per-user)
-//             Each user's relationship with a business
-//             Always scoped to userId — never visible to other users
+//             Each user's private relationship with a MasterBusiness.
+//             Always scoped to userId — never visible to other users.
+//             Score is calculated per user against their campaign ICP — never stored globally.
+//
+// HARD RULES (enforced in application code):
+//   - Every email send checks status === 'APPROVED' — no exceptions
+//   - Every Layer 2 query includes where: { userId } — no exceptions
+//   - master_businesses is NEVER filtered by userId
+//   - Soft delete only — never prisma.X.delete()
+//   - Scoring reads from campaign.icpCriteria — never hardcoded weights
 // ============================================================
 
 generator client {
@@ -20,11 +35,14 @@ datasource db {
   provider = "postgresql"
 }
 
-// -----------------------------------------------------------
+// ============================================================
 // AUTH MODELS
-// Copied from Menumize packages/auth — minimal changes
-// -----------------------------------------------------------
+// Managed by Auth.js v5 (next-auth@beta) + @auth/prisma-adapter
+// Do not modify field names — Auth.js requires exact naming
+// ============================================================
 
+// The subscriber. Represents one business using LeadGen GCC.
+// Their businessName/whatTheySell are used by Claude when generating ICP criteria and emails.
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -32,38 +50,43 @@ model User {
   emailVerified DateTime? @map("email_verified")
   image         String?
 
-  // Business context — collected during onboarding
-  businessName  String?   // "Digital Growth Agency"
-  industry      String?   // "marketing_agency" | "cctv" | "food_supplier" | "saas" | "other"
-  whatTheySell  String?   // plain text: "Social media management for restaurants"
+  // Business context — collected during onboarding wizard
+  // Claude reads these when generating ICP criteria for new campaigns
+  businessName  String?   // "Menumize" | "Al Baraka Food Supply" | "Digital Spark Agency"
+  industry      String?   // "saas" | "food_supplier" | "marketing_agency" | "cctv" | "restaurant" | "other"
+  whatTheySell  String?   // plain text: "QR-based digital menus and guest CRM for restaurants in GCC"
 
-  // Platform
-  role          String    @default("USER") // "USER" | "ADMIN"
-  plan          String    @default("FREE") // "FREE" | "STARTER" | "GROWTH" | "PRO" | "AGENCY"
+  // Platform access
+  role          String    @default("USER")     // "USER" | "ADMIN"
+  plan          String    @default("FREE")     // "FREE" | "STARTER" | "GROWTH" | "PRO" | "AGENCY"
   isActive      Boolean   @default(true)
-  onboarded     Boolean   @default(false) // true after completing onboarding wizard
+  onboarded     Boolean   @default(false)      // true after completing onboarding wizard
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLogin     DateTime?
 
-  // Auth relations
+  // Auth relations (managed by Auth.js)
   accounts            Account[]
   sessions            Session[]
   passwordResetTokens PasswordResetToken[]
-  subscriptions       Subscription[]
-  payments            Payment[]
+
+  // Billing relations
+  subscriptions Subscription[]
+  payments      Payment[]
 
   // LeadGen relations
-  materials        Material[]
-  campaigns        Campaign[]
-  userLeads        UserLead[]
-  userEmails       UserEmail[]
-  userFollowups    UserFollowup[]
-  existingContacts ExistingContact[]
+  materials        Material[]       // uploaded PDF/DOCX/TXT files
+  icpTemplates     ICPTemplate[]    // saved ICP profiles for reuse across campaigns
+  campaigns        Campaign[]       // search runs with ICP criteria
+  userLeads        UserLead[]       // this user's pipeline entries
+  userEmails       UserEmail[]      // AI-drafted emails per lead
+  userFollowups    UserFollowup[]   // follow-up email sequence
+  existingContacts ExistingContact[] // imported from CRM CSV for dedup
 
   @@map("users")
 }
 
+// OAuth provider accounts (Google Sign-In, etc.)
 model Account {
   id                String   @id @default(cuid())
   userId            String   @map("user_id")
@@ -86,6 +109,7 @@ model Account {
   @@map("accounts")
 }
 
+// Active login sessions
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique @map("session_token")
@@ -98,6 +122,7 @@ model Session {
   @@map("sessions")
 }
 
+// Email magic-link verification tokens
 model VerificationToken {
   identifier String
   token      String
@@ -108,6 +133,7 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+// Password reset tokens (for magic-link / email flow)
 model PasswordResetToken {
   id        String   @id @default(cuid())
   token     String   @unique
@@ -121,26 +147,29 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-// -----------------------------------------------------------
+// ============================================================
 // BILLING MODELS
-// Copied from Menumize — same Paddle structure
-// -----------------------------------------------------------
+// Paddle-based subscription + payment tracking
+// tier mirrors User.plan — both must stay in sync on upgrade/downgrade
+// ============================================================
 
+// One active subscription per user. Paddle webhooks update this.
 model Subscription {
   id     String @id @default(cuid())
   userId String
 
   tier   String // "FREE" | "STARTER" | "GROWTH" | "PRO" | "AGENCY"
-  status String @default("ACTIVE") // "TRIALING" | "ACTIVE" | "CANCELED" | "EXPIRED" | "PAST_DUE"
+  status String @default("ACTIVE")
+  // "TRIALING" | "ACTIVE" | "CANCELED" | "EXPIRED" | "PAST_DUE"
 
-  currentPeriodStart DateTime @default(now())
+  currentPeriodStart DateTime  @default(now())
   currentPeriodEnd   DateTime
+  trialEndsAt        DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+  canceledAt         DateTime?
+  endedAt            DateTime?
 
-  trialEndsAt       DateTime?
-  cancelAtPeriodEnd Boolean   @default(false)
-  canceledAt        DateTime?
-  endedAt           DateTime?
-
+  // Paddle identifiers
   provider               String? // "PADDLE"
   providerCustomerId     String?
   providerSubscriptionId String?
@@ -157,6 +186,7 @@ model Subscription {
   @@map("subscriptions")
 }
 
+// Individual payment records (invoices, top-ups)
 model Payment {
   id     String @id @default(cuid())
   userId String
@@ -179,28 +209,30 @@ model Payment {
   @@map("payments")
 }
 
-// -----------------------------------------------------------
-// LAYER 0 — USER MATERIALS
-// PDF/Word files uploaded by user during onboarding
-// AI reads these to understand what the user sells
-// -----------------------------------------------------------
+// ============================================================
+// LAYER 0 — USER CONFIG
+// Materials and ICP Templates define who this subscriber is
+// and who they want to target. Claude reads both.
+// ============================================================
 
+// PDF / DOCX / TXT files uploaded by the user during onboarding or settings.
+// Claude reads contentExtracted when generating ICP criteria and outreach emails.
+// Soft-deleted via deletedAt — never hard-deleted.
 model Material {
   id     String @id @default(cuid())
   userId String
 
-  filename         String  // "company_brochure.pdf"
-  originalName     String  // user-facing display name
+  filename         String  // stored filename on disk
+  originalName     String  // user-facing display name, e.g. "Menumize Brochure Q1.pdf"
   fileType         String  // "pdf" | "docx" | "txt"
-  contentExtracted String  @db.Text // raw text extracted by pdf-parse / mammoth
+  contentExtracted String  @db.Text // full text extracted by pdf-parse / mammoth
   fileSizeBytes    Int?
 
-  // AI-processed summary for use in prompts
-  aiSummary        String? @db.Text // short summary of what was extracted
-  isProcessed      Boolean @default(false)
+  aiSummary    String?  @db.Text // optional short summary generated by Claude
+  isProcessed  Boolean  @default(false)
 
   createdAt DateTime  @default(now())
-  deletedAt DateTime? // soft delete — null means active
+  deletedAt DateTime? // soft delete — null = active
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -208,65 +240,154 @@ model Material {
   @@map("materials")
 }
 
-// -----------------------------------------------------------
-// LAYER 1 — MASTER BUSINESS DATABASE (PLATFORM-OWNED)
-// Shared across all users. Public data only.
-// One record per real-world business.
-// Never scoped to a userId.
-// Costs (Google API, Instagram check) paid ONCE per business.
-// -----------------------------------------------------------
+// Reusable Ideal Customer Profile (ICP) templates.
+// AI generates these from the user's business profile + materials + target sector.
+// User reviews, adjusts, and saves with a name for reuse across campaigns.
+// Each campaign copies its chosen template into campaign.icpCriteria (inline JSON).
+// Deleting a template does NOT affect campaigns that already used it.
+model ICPTemplate {
+  id     String @id @default(cuid())
+  userId String
+
+  name         String  // user-defined: "Restaurants - No Digital Menu" | "Salons - Dormant Instagram"
+  targetSector String  // "restaurant" | "salon" | "office" | "retail" | "spa" | "gym" | ...
+
+  // Full ICP criteria as structured JSON.
+  // Shape defined in lib/services/icp-generator.ts (validated with Zod).
+  // Fields: minPriceLevel, minReviewCount, minRating, minBusinessAgeMonths,
+  //         instagramFollowersMin, instagramFollowersMax,
+  //         mustNotHaveSignals[], mustHaveSignals[], scoringWeights{}, targetDescription
+  criteria    Json
+
+  // Plain English explanation of why Claude suggested these criteria.
+  // Shown to the user in the ICP Builder UI for transparency.
+  aiRationale String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns Campaign[] // campaigns that were created using this template
+
+  @@index([userId])
+  @@index([userId, targetSector])
+  @@map("icp_templates")
+}
+
+// ============================================================
+// CAMPAIGNS
+// A named search run. User defines target sector, location, and ICP.
+// One campaign produces many UserLeads via Google Maps discovery.
+// The ICP criteria stored here drive all scoring for leads in this campaign.
+// ============================================================
+
+model Campaign {
+  id     String @id @default(cuid())
+  userId String
+
+  name         String  // user-defined: "Doha Restaurants - West Bay - March 2026"
+  businessType String  // target sector: "restaurant" | "cafe" | "salon" | "office" | ...
+  city         String  // "Doha" | "Dubai" | "Riyadh"
+  area         String? // neighbourhood from predefined list: "West Bay" | "The Pearl" | "Al Sadd"
+  language     String  @default("en")           // "en" | "ar" | "both" — for generated emails
+  tone         String  @default("professional")  // "friendly" | "professional" | "formal"
+
+  // The exact Google Maps query used for discovery.
+  // Stored to avoid re-running the same search within 7 days.
+  // e.g. "restaurants in West Bay, Doha"
+  searchQuery  String?
+
+  // ICP — the criteria used to score leads in this campaign.
+  // icpTemplateId links to the template this was based on (optional — may be inline only).
+  // icpCriteria is always the live copy used for scoring — editing the template later has no effect.
+  icpTemplateId String?      // optional: which saved template was used as the starting point
+  icpCriteria   Json?        // the actual ICP JSON used for scoring (copied from template or built inline)
+
+  // Discovery progress
+  status      String  @default("DRAFT")   // "DRAFT" | "RUNNING" | "COMPLETED" | "PAUSED"
+  leadsFound  Int     @default(0)         // total businesses returned by Google Maps
+  leadsScored Int     @default(0)         // leads that have completed enrichment + scoring
+
+  // Follow-up settings (inherited by all leads in this campaign)
+  followupDays Int @default(3) // days to wait before first follow-up
+  maxFollowups Int @default(2) // max follow-up emails per lead (hard cap)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  icpTemplate ICPTemplate? @relation(fields: [icpTemplateId], references: [id], onDelete: SetNull)
+  userLeads   UserLead[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@map("campaigns")
+}
+
+// ============================================================
+// LAYER 1 — MASTER BUSINESS DATABASE (PLATFORM-OWNED, SHARED)
+// One record per real-world business. Shared across all users.
+// Discovered via Google Maps. Enriched via website scraping (fetch + Cheerio)
+// and Instagram (Apify). Costs paid ONCE per business across the whole platform.
+// NEVER filtered by userId — it belongs to the platform, not to any user.
+// ============================================================
 
 model MasterBusiness {
   id String @id @default(cuid())
 
   // Identity
-  name           String
-  googlePlaceId  String  @unique // used for deduplication
-  sector         String  // "restaurant" | "cafe" | "office" | "hotel" | "salon" | "gym" | ...
+  name          String
+  googlePlaceId String  @unique // used for deduplication on upsert
+  sector        String  // "restaurant" | "cafe" | "office" | "hotel" | "salon" | "gym" | "spa" | "retail" | ...
 
   // Location
-  address        String?
-  area           String? // neighbourhood / district
-  city           String  // "Doha" | "Dubai" | "Riyadh"
-  country        String  @default("QA") // ISO-3166 alpha-2
+  address String?
+  area    String? // neighbourhood / district extracted from Google vicinity
+  city    String  // "Doha" | "Dubai" | "Riyadh"
+  country String  @default("QA") // ISO-3166 alpha-2
 
-  // Contact
-  phone          String?
-  email          String?
-  website        String?
+  // Contact info (from Google Maps or website scraping)
+  phone   String?
+  email   String? // extracted from website mailto: links or contact page
+  website String?
 
-  // Google signals
-  googleRating      Float?
-  googleReviewCount Int?
-  googlePriceLevel  Int?  // 1-4 ($ to $$$$)
-  googleOpenNow     Boolean?
+  // Google Maps signals (from Places API)
+  googleRating      Float?   // e.g. 4.2
+  googleReviewCount Int?     // total review count — proxy for business size
+  googlePriceLevel  Int?     // 1 ($) to 4 ($$$$)
+  googleOpenNow     Boolean? // snapshot — not reliable for long-term storage
 
-  // Website signals (detected by Puppeteer)
-  hasWebsite       Boolean @default(false)
-  hasDigitalMenu   Boolean @default(false)
-  hasQrCode        Boolean @default(false)
-  hasOnlineOrder   Boolean @default(false)
+  // Website signals (detected by fetch + Cheerio scraper)
+  hasWebsite     Boolean @default(false)
+  hasDigitalMenu Boolean @default(false) // digital menu link, PDF menu, Zomato embed
+  hasQrCode      Boolean @default(false) // QR code image or mention on site
+  hasOnlineOrder Boolean @default(false) // Talabat / Careem Food / Deliveroo / Hunger Station link
 
-  // Social signals (detected automatically)
-  instagramUsername    String?
-  instagramFollowers   Int?
-  instagramPostCount   Int?
-  instagramLastPostAt  DateTime?
-  instagramIsActive    Boolean? // last post < 30 days
+  // Visual identity
+  logoUrl String? // og:image from website or Google Places photo reference
 
-  facebookUrl    String?
-  facebookLikes  Int?
+  // Instagram signals (fetched via Apify instagram-profile-scraper)
+  instagramUsername   String?
+  instagramFollowers  Int?
+  instagramPostCount  Int?
+  instagramLastPostAt DateTime?
+  instagramIsActive   Boolean?  // true if last post was < 30 days ago
 
-  linkedinUrl    String?
+  // Other social signals
+  facebookUrl   String?
+  facebookLikes Int?
+  linkedinUrl   String?
 
   // Enrichment metadata
-  lastEnrichedAt DateTime? // when data was last refreshed
-  enrichVersion  Int       @default(1) // bump to force re-enrich
+  // lastEnrichedAt < 30 days → serve from cache, skip scraping
+  // lastEnrichedAt > 30 days → re-enrich in background, serve cache now
+  lastEnrichedAt DateTime?
+  enrichVersion  Int       @default(1) // bump to force re-enrichment regardless of age
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   userLeads UserLead[]
 
   @@index([city, sector])
@@ -275,131 +396,113 @@ model MasterBusiness {
   @@map("master_businesses")
 }
 
-// -----------------------------------------------------------
+// ============================================================
 // LAYER 2 — USER LEADS (PRIVATE, PER-USER)
-// Each user's private relationship with a MasterBusiness.
-// Always scoped to userId. Never visible to other users.
-// Score calculated per user based on their sector needs.
-// -----------------------------------------------------------
+// Each user's private pipeline relationship with a MasterBusiness.
+// Score is calculated per user against their campaign's ICP — never stored in MasterBusiness.
+// isSuppressed = this user never wants to see this business again (their view only).
+// ============================================================
 
 model UserLead {
-  id               String @id @default(cuid())
+  id               String  @id @default(cuid())
   userId           String
   masterBusinessId String
   campaignId       String?
 
-  // Score calculated for THIS user's sector — not stored in MasterBusiness
-  score            Int     @default(0)     // 0-100
-  scoreLabel       String  @default("COLD") // "HOT" | "WARM" | "COLD"
+  // ICP-driven score for THIS user's campaign — not a global score
+  // Calculated by lib/scoring.ts reading campaign.icpCriteria
+  score      Int    @default(0)      // 0–100
+  scoreLabel String @default("COLD") // "HOT" | "WARM" | "COLD"
 
-  // Pipeline status
-  status           String  @default("NEW")
-  // "NEW" | "EMAIL_DRAFT" | "EMAIL_APPROVED" | "EMAIL_SENT"
-  // "OPENED" | "REPLIED" | "MEETING" | "CLOSED_WON" | "CLOSED_LOST"
-  // "NOT_INTERESTED" | "WRONG_CONTACT" | "DUPLICATE"
+  // Claude-generated 2–3 line summary card for this lead
+  // Generated after enrichment, using the user's ICP context
+  // Example: "No digital menu. Instagram active (847 followers). Opened 8 months ago. Strong fit."
+  aiSummary String? @db.Text
 
-  // Suppression — only affects this user's view
-  isSuppressed     Boolean @default(false)
+  // Pipeline status — tracks where this lead is in the sales process
+  // Email-specific states (DRAFT, APPROVED, SENT) live on UserEmail, not here
+  status String @default("NEW")
+  // "NEW"            — just discovered, enrichment may be in progress
+  // "CONTACTED"      — user has reached out via any channel
+  // "OPENED"         — email was opened (tracked via pixel)
+  // "REPLIED"        — lead replied to any outreach
+  // "MEETING"        — meeting booked or confirmed
+  // "CLOSED_WON"     — converted to customer
+  // "CLOSED_LOST"    — decided not to pursue
+  // "NOT_INTERESTED" — lead said no
+  // "WRONG_CONTACT"  — wrong business or unreachable
 
-  // Notes
-  notes            String? @db.Text
+  // Outreach channel — how the user contacted (or plans to contact) this lead
+  // Determines what the UI shows: email draft vs phone number vs LinkedIn link
+  outreachChannel String    @default("email")
+  // "email" | "whatsapp" | "phone" | "linkedin" | "manual"
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  lastActivityAt   DateTime?
+  contactedAt DateTime? // set whenever user marks lead as contacted, regardless of channel
 
-  // Relations
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  masterBusiness  MasterBusiness @relation(fields: [masterBusinessId], references: [id])
-  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  userEmails      UserEmail[]
-  userFollowups   UserFollowup[]
+  // Suppression — only affects THIS user's pipeline view
+  // Suppressed leads never appear in future searches or campaign results for this user
+  isSuppressed Boolean @default(false)
 
-  // A user should only have one active lead record per business
+  notes String? @db.Text // private notes — visible only to this user
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastActivityAt DateTime? // updated on any status change or email event
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  masterBusiness MasterBusiness @relation(fields: [masterBusinessId], references: [id])
+  campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  userEmails     UserEmail[]
+  userFollowups  UserFollowup[]
+
+  // One lead record per user per business — no duplicates
   @@unique([userId, masterBusinessId])
   @@index([userId, status])
-  @@index([userId, campaignId])
   @@index([userId, scoreLabel])
+  @@index([userId, campaignId])
   @@index([campaignId])
   @@map("user_leads")
 }
 
-// -----------------------------------------------------------
-// CAMPAIGNS
-// A search run — user defines sector + city + filters
-// One campaign produces many UserLeads
-// -----------------------------------------------------------
-
-model Campaign {
-  id     String @id @default(cuid())
-  userId String
-
-  name         String  // user-defined: "Doha Restaurants Q1"
-  businessType String  // "restaurant" | "cafe" | "office" | "hotel" ...
-  city         String  // "Doha"
-  area         String? // optional: "West Bay" | "The Pearl"
-  language     String  @default("en") // "en" | "ar" | "both"
-  tone         String  @default("professional") // "friendly" | "professional" | "formal"
-
-  // Status
-  status       String  @default("DRAFT") // "DRAFT" | "RUNNING" | "COMPLETED" | "PAUSED"
-  leadsFound   Int     @default(0)
-  leadsScored  Int     @default(0)
-
-  // Cron config for follow-ups
-  followupDays Int     @default(3)  // days to wait before follow-up
-  maxFollowups Int     @default(2)  // max follow-up emails per lead
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  completedAt  DateTime?
-
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userLeads UserLead[]
-
-  @@index([userId, status])
-  @@index([userId, createdAt])
-  @@map("campaigns")
-}
-
-// -----------------------------------------------------------
+// ============================================================
 // USER EMAILS
-// AI-generated emails, pending user approval before send
-// HARD RULE: status must be "APPROVED" before sending
-// -----------------------------------------------------------
+// AI-generated outreach emails, pending user approval before send.
+// HARD RULE: status MUST equal "APPROVED" before sendEmail() is called — no exceptions.
+// One email per lead per outreach attempt. Follow-ups are in UserFollowup.
+// ============================================================
 
 model UserEmail {
   id         String @id @default(cuid())
   userId     String
   userLeadId String
 
-  // Content
-  subject    String
-  body       String  @db.Text
-  language   String  @default("en") // "en" | "ar"
+  subject  String
+  body     String @db.Text
+  language String @default("en") // "en" | "ar"
 
-  // Approval gate — NEVER send without APPROVED status
-  status     String  @default("DRAFT")
-  // "DRAFT" | "APPROVED" | "REJECTED" | "SENT" | "BOUNCED"
+  // Approval gate — application code must check this before calling Resend
+  status String @default("DRAFT")
+  // "DRAFT"    — generated, awaiting user review
+  // "APPROVED" — user approved, ready to send
+  // "REJECTED" — user rejected, will not send
+  // "SENT"     — sent via Resend
+  // "BOUNCED"  — Resend reported bounce
 
-  // Timestamps
   approvedAt DateTime?
   rejectedAt DateTime?
   sentAt     DateTime?
-  openedAt   DateTime?
-  repliedAt  DateTime?
+  openedAt   DateTime? // set by open-tracking pixel hit
+  repliedAt  DateTime? // set by Resend reply webhook
 
-  // Tracking
-  trackingId String?  @unique // used for open pixel tracking
-  openCount  Int      @default(0)
+  trackingId String? @unique // UUID embedded in tracking pixel URL
+  openCount  Int     @default(0)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userLead    UserLead       @relation(fields: [userLeadId], references: [id], onDelete: Cascade)
-  followups   UserFollowup[]
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userLead  UserLead     @relation(fields: [userLeadId], references: [id], onDelete: Cascade)
+  followups UserFollowup[]
 
   @@index([userId, status])
   @@index([userLeadId])
@@ -407,12 +510,13 @@ model UserEmail {
   @@map("user_emails")
 }
 
-// -----------------------------------------------------------
+// ============================================================
 // USER FOLLOWUPS
-// Auto-generated follow-up emails
-// Same approval gate as UserEmail — never auto-send
-// Max 2 per lead (enforced in application logic)
-// -----------------------------------------------------------
+// Scheduled follow-up emails in a sequence per lead.
+// Same approval gate as UserEmail — never auto-send.
+// Max 2 follow-ups per lead (enforced in application logic, not DB constraint).
+// Cancelled automatically when the lead replies.
+// ============================================================
 
 model UserFollowup {
   id          String @id @default(cuid())
@@ -420,62 +524,58 @@ model UserFollowup {
   userLeadId  String
   userEmailId String // the original email this follows up on
 
-  // Content
-  subject     String
-  body        String  @db.Text
-  language    String  @default("en")
-
-  // Sequence
-  sequenceNumber Int   // 1 or 2 — max 2 follow-ups per lead
+  subject        String
+  body           String @db.Text
+  language       String @default("en")
+  sequenceNumber Int    // 1 or 2 — position in the follow-up sequence
 
   // Approval gate — same rule as UserEmail
-  status      String  @default("PENDING_APPROVAL")
-  // "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "SENT" | "CANCELLED"
-  // CANCELLED = lead replied, sequence stopped automatically
+  status String @default("PENDING_APPROVAL")
+  // "PENDING_APPROVAL" — waiting for user to review
+  // "APPROVED"         — ready to send on scheduledFor date
+  // "REJECTED"         — user declined to send
+  // "SENT"             — sent via Resend
+  // "CANCELLED"        — lead replied, sequence stopped automatically
 
-  // Scheduling
-  scheduledFor DateTime  // when cron will surface this for approval
+  scheduledFor DateTime  // Vercel Cron checks this daily
   approvedAt   DateTime?
   sentAt       DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userLead    UserLead  @relation(fields: [userLeadId], references: [id], onDelete: Cascade)
-  userEmail   UserEmail @relation(fields: [userEmailId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userLead  UserLead  @relation(fields: [userLeadId], references: [id], onDelete: Cascade)
+  userEmail UserEmail @relation(fields: [userEmailId], references: [id], onDelete: Cascade)
 
-  @@unique([userLeadId, sequenceNumber]) // only one followup per sequence slot
+  // Only one follow-up per sequence position per lead
+  @@unique([userLeadId, sequenceNumber])
   @@index([userId, status])
-  @@index([scheduledFor, status]) // cron query
+  @@index([scheduledFor, status]) // cron query: find due follow-ups
   @@index([userLeadId])
   @@map("user_followups")
 }
 
-// -----------------------------------------------------------
+// ============================================================
 // EXISTING CONTACTS
-// Imported from user's CRM CSV export
-// Used for deduplication — never contact these again
-// Also used to build Ideal Customer Profile
-// -----------------------------------------------------------
+// Imported from the user's existing CRM or contact list (CSV/Excel).
+// Used for two purposes:
+//   1. Deduplication — never reach out to someone already in their system
+//   2. ICP refinement — helps Claude understand who already converted
+// ============================================================
 
 model ExistingContact {
   id     String @id @default(cuid())
   userId String
 
-  // Contact info from CSV
   email       String?
   name        String?
   company     String?
   phone       String?
+  statusInCrm String? // "customer" | "prospect" | "lost" | "churned" — from their export
 
-  // CRM status from their export
-  statusInCrm String? // "customer" | "prospect" | "lost" | "churned"
-
-  // Source file metadata
-  sourceFile  String? // original filename uploaded
-  importedAt  DateTime @default(now())
+  sourceFile String?  // original CSV filename, for traceability
+  importedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -485,32 +585,29 @@ model ExistingContact {
   @@map("existing_contacts")
 }
 
-// -----------------------------------------------------------
-// PLATFORM SIGNALS (ANONYMOUS)
-// Aggregated performance data — no user identity
-// Used to improve scoring and recommendations over time
-// NEVER store userId or any identifying information here
-// -----------------------------------------------------------
+// ============================================================
+// PLATFORM SIGNALS (ANONYMOUS AGGREGATE DATA)
+// Performance data collected across all users with NO user identity.
+// Used to improve scoring recommendations and benchmarks over time.
+// NEVER store userId, email, businessId, or any identifying information here.
+// ============================================================
 
 model PlatformSignal {
   id String @id @default(cuid())
 
-  // Context — no user identity
-  sector        String  // "restaurant" | "agency" | "cctv"
-  city          String  // "Doha" | "Dubai"
-  dayOfWeek     Int     // 0-6 (0=Sunday)
-  hourOfDay     Int     // 0-23
+  sector    String // "restaurant" | "salon" | "office" | ...
+  city      String // "Doha" | "Dubai"
+  dayOfWeek Int    // 0–6 (0 = Sunday)
+  hourOfDay Int    // 0–23
 
-  // What was tried
-  signalType    String  // "email_sent" | "email_opened" | "email_replied" | "lead_converted"
-  subjectPattern String? // anonymized pattern e.g. "question_personalized"
-  language      String? // "en" | "ar"
-  tone          String? // "friendly" | "professional"
+  signalType     String  // "email_sent" | "email_opened" | "email_replied" | "lead_converted"
+  subjectPattern String? // anonymized pattern e.g. "question_personalized_arabic"
+  language       String? // "en" | "ar"
+  tone           String? // "friendly" | "professional" | "formal"
 
-  // Outcome
-  outcome       Boolean // true = success (reply/open/convert), false = no response
+  outcome Boolean // true = positive result (reply / open / convert), false = no response
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([sector, city, dayOfWeek])
   @@index([sector, signalType, outcome])
