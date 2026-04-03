@@ -29,6 +29,8 @@ the core loop is proven. GCC is underserved — no Arabic-first, region-aware co
 5. Never auto-send — follow-ups generate as 'pending_approval'
 6. Soft delete only — never prisma.X.delete()
 7. Scores live in user_leads — never stored in master_businesses
+8. Scoring always reads from campaign.icpCriteria — never hardcoded weights
+   Hardcoded scoring is wrong for every subscriber except the one it was written for
 ```
 
 ---
@@ -48,7 +50,12 @@ Layer 2a — business_contacts (per-user, multiple per company)  ← PLANNED
 
 Layer 2b — user_leads (per-user pipeline relationship)
   This user's pipeline status with a specific company.
-  userId + masterBusinessId. Score + status + all emails/followups.
+  userId + masterBusinessId. Score + status + outreachChannel + all emails/followups.
+
+Layer 2c — ICP Templates (per-user, reusable across campaigns)
+  AI-generated Ideal Customer Profile criteria saved as named templates.
+  userId. Each campaign copies its chosen template into campaign.icpCriteria JSON.
+  Fields: name, targetSector, criteria (JSON), aiRationale
 
 Rule: Same company → different contacts for different users (private discovery)
 Rule: Same company → different scores for different users (sector-specific scoring)
@@ -81,8 +88,9 @@ Database:   Neon PostgreSQL (Frankfurt) + Prisma 7
 Auth:       Auth.js v5 (next-auth@beta)
 AI:         Claude API — claude-sonnet-4-20250514
 Maps:       Google Places API (Text Search + Place Details)
-Scraping:   Puppeteer (website signals, logo, contact email)
-Social:     Direct HTTP MVP → RapidAPI at scale
+Scraping:   fetch + Cheerio (website signals, logo, contact email — no Puppeteer)
+Social:     Apify (instagram-profile-scraper actor — pay per use)
+Queue:      QStash by Upstash (background enrichment jobs — HTTP-based, Vercel-compatible)
 Email:      Resend
 Parsing:    pdf-parse (PDF) + mammoth (DOCX) + ExcelJS (CSV)
 Cron:       Vercel Cron (follow-up scheduling)
@@ -134,10 +142,10 @@ API Routes    → only for external callers
 
 ## Project Reference Docs
 
-Full architecture, schemas, and feature specs live in `docs/`:
+Full architecture, schemas, and feature specs live in `.docs/`:
 
 ```
-docs/
+.docs/
 ├── README.md                    ← Index — start here each session
 ├── TODO.md                      ← Dev checklist — track progress here
 ├── PRODUCT_STRATEGY.md          ← Platform vision, scoring, pricing, GTM, roadmap
@@ -154,7 +162,7 @@ docs/
 
 **How to use:** At the start of any session working on a specific subsystem:
 ```
-"Read docs/references/[SUBSYSTEM]_REFERENCE.md and help me [task]"
+"Read .docs/references/[SUBSYSTEM]_REFERENCE.md and help me [task]"
 ```
 
 

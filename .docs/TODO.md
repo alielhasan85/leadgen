@@ -1,7 +1,7 @@
 # LeadGen GCC — Development TODO
 > Track progress here. Check boxes as you complete tasks.
 > Read CLAUDE.md first for full context and architecture decisions.
-> Last updated: 2026-03-29 — Session 3 complete (app shell + feature-first refactor)
+> Last updated: 2026-03-31 — Session 5 complete (ICP Generator + Campaign Wizard built and tested end-to-end)
 
 ---
 
@@ -24,17 +24,91 @@
 
 ## Phase 2 — Master Business Database & Enrichment
 
-- [x] master_businesses schema defined in Prisma (all fields — done in Session 1)
-- [ ] Google Maps Places API — Text Search (keyword + city → list of places)
-- [ ] Google Maps Places API — Place Details (enrich each result: phone, website, hours)
-- [ ] Website scraper with Puppeteer:
-  - [ ] Detect: digital menu, QR code, Instagram link, online ordering
-  - [ ] Extract: contact email, phone number from contact page
-  - [ ] Extract: logo URL (og:image or favicon)
-- [ ] Instagram basic check — direct HTTP (followers, post count, last post date)
-- [ ] Deduplication by google_place_id (upsert — update if exists, insert if new)
-- [ ] Data freshness logic (last_enriched_at > 30 days → re-enrich in background)
-- [ ] Add logoUrl field to master_businesses schema + migration
+> Architecture decisions locked in Session 4 — see PRODUCT_STRATEGY.md for full detail.
+
+### Schema changes (do first, one migration)
+- [x] Add `logoUrl String?` to MasterBusiness
+- [x] Add `outreachChannel String @default("email")` to UserLead (email|whatsapp|phone|linkedin|manual)
+- [x] Add `contactedAt DateTime?` to UserLead
+- [x] Add `searchQuery String?` to Campaign (tracks what was searched to prevent re-runs)
+- [x] Add `icpTemplateId String?` to Campaign (optional link to saved template)
+- [x] Add `icpCriteria Json?` to Campaign (the ICP JSON used for scoring this campaign)
+- [x] New model `ICPTemplate`: id, userId, name, targetSector, criteria Json, aiRationale String, createdAt, updatedAt — index [userId]
+- [x] Run: `npx prisma migrate dev --name phase2_icp_enrichment_fields`
+
+### Infrastructure
+- [x] Install packages: `cheerio` (HTML parsing) + `@upstash/qstash` (background jobs)
+- [ ] Create `lib/services/qstash.ts` — thin wrapper to publish enrichment messages
+- [ ] Create `app/api/enrich/[businessId]/route.ts` — worker route QStash calls per business
+- [x] Sign up for QStash (Upstash free tier: 500 msg/day — enough for MVP)
+- [x] Sign up for Apify (pay-per-use, ~$0.10–0.30 per 100 Instagram profiles)
+
+### ICP Builder (runs before discovery — the core of the app)
+- [x] Create `lib/services/icp-generator.ts`:
+  - [x] Input: user profile (businessName, whatTheySell) + materials text + targetSector
+  - [x] Calls Claude → returns structured ICP JSON + aiRationale per criterion
+  - [x] Zod schema validates the output before saving
+- [x] Campaign creation wizard — 4 steps:
+  - [x] Step 1: Name + language + tone
+  - [x] Step 2: Target sector (dropdown — restaurant, salon, office, retail, spa, etc.)
+  - [x] Step 3: Location — city + area (predefined area list per city)
+  - [x] Step 4: ICP Builder UI
+    - [x] Show AI-generated criteria as human-readable cards with rationale
+    - [x] Sliders: min price level, min reviews, min rating, follower range, min business age
+    - [x] Toggle switches: must-not-have signals (digital menu, online ordering, competitor tool)
+    - [x] Toggle switches: must-have signals (has website, etc.) — optional
+    - [x] "Save as template" button → creates ICPTemplate record with user-chosen name
+    - [x] "Load template" dropdown → populates from existing ICPTemplate
+    - [x] Confirm → saves Campaign with icpCriteria JSON → triggers discovery
+
+### Discovery (Google Maps — already has lib/services/google-maps.ts)
+- [x] `searchAndEnrichPlaces()` built — Text Search + Place Details in one call
+- [ ] Discovery server action triggered after campaign confirmed:
+  - [ ] Build search query: `"{businessType}" in "{area}, {city}"`
+  - [ ] Check Campaign.searchQuery — skip if same search run in last 7 days
+  - [ ] Call `searchAndEnrichPlaces()` → upsert each result into master_businesses
+  - [ ] Filter out permanently closed businesses before saving
+  - [ ] Create user_leads records (skip if userId+masterBusinessId already exists)
+  - [ ] Publish one QStash message per business → triggers enrichment worker
+  - [ ] Return immediately — UI shows leads with "Enriching…" badge
+
+### Website enrichment (fetch + Cheerio, no Puppeteer)
+- [ ] Create `lib/services/website-scraper.ts`:
+  - [ ] Detect digital menu (links with "menu", embedded Zomato/Talabat/QR widget, PDF link)
+  - [ ] Detect online ordering (Talabat, Careem Food, Deliveroo, Hunger Station links)
+  - [ ] Detect QR code (`<img>` alt/src containing "qr")
+  - [ ] Extract Instagram handle (`<a href="instagram.com/...">` in footer/header)
+  - [ ] Extract contact email (`mailto:` links or email pattern in text)
+  - [ ] Extract logo (`og:image` meta tag)
+  - [ ] Fallback: if site is SPA or blocks fetch → mark hasWebsite:true, skip signals silently
+
+### Instagram enrichment (Apify)
+- [ ] Create `lib/services/apify.ts` — call `apify/instagram-profile-scraper` actor
+  - [ ] Input: instagramUsername extracted from website scraping
+  - [ ] Output: followers, postCount, lastPostDate → update master_businesses
+  - [ ] Fallback chain: website → Google Maps listing → skip (leave fields null)
+
+### Enrichment worker
+- [ ] `app/api/enrich/[businessId]/route.ts`:
+  - [ ] Verify QStash signature (security — reject requests not from QStash)
+  - [ ] Run website scraper → update master_businesses signals
+  - [ ] If instagramUsername found → call Apify → update Instagram fields
+  - [ ] Update master_businesses.lastEnrichedAt
+  - [ ] Trigger ICP-driven scoring: read campaign.icpCriteria → calculate score → update user_leads.score + scoreLabel
+  - [ ] Hard exclusion: if any mustNotHaveSignal matches → score = 0, label = COLD
+
+### Deduplication (5 layers)
+- [ ] Layer 1: master_businesses.googlePlaceId UNIQUE — already in schema ✅
+- [ ] Layer 2: user_leads UNIQUE(userId, masterBusinessId) — already in schema ✅
+- [ ] Layer 3: user_leads.isSuppressed — already in schema ✅ (hide suppressed from all future searches)
+- [ ] Layer 4: lastEnrichedAt < 30 days → skip scraping, serve from cache
+- [ ] Layer 5: Campaign.searchQuery dedup — skip if same search run in last 7 days
+
+### Contact channel tracking (not always email)
+- [ ] UserLead shows phone number with "Copy" button for WhatsApp/phone outreach
+- [ ] UserLead shows LinkedIn URL if available
+- [ ] "Mark as Contacted" action — user logs manual outreach (sets contactedAt + status)
+- [ ] outreachChannel logged per lead — email | whatsapp | phone | linkedin | manual
 
 ---
 
@@ -55,9 +129,9 @@
 
 ## Phase 4 — Per-User Leads, Scoring & Discovery UI
 
-- [ ] Campaign creation flow (sector + city + area + language + tone → triggers discovery)
-- [ ] Lead scoring engine — general signals (digital presence, maturity, reputation, activity)
-- [ ] Lead scoring engine — sector templates (restaurants first, then agencies, CCTV)
+- [ ] Campaign creation flow — UI only (4-step wizard built in Phase 2, Phase 4 adds polish + campaign list view)
+- [ ] Lead scoring engine `lib/scoring.ts` — reads campaign.icpCriteria, never hardcoded weights
+- [ ] Hard exclusion logic: mustNotHaveSignals match → score = 0 regardless of other signals
 - [ ] AI lead summary card per lead (2–3 line snapshot: key signals + why it scored Hot/Warm/Cold)
 - [ ] Leads list view (name, area, score badge, status, last activity — sortable + filterable)
 - [ ] Lead detail drawer / company profile page:

@@ -2,7 +2,7 @@ import { defineConfig } from 'prisma/config'
 import { config } from 'dotenv'
 
 // Load .env for local CLI use (no-op on Vercel where env vars are injected)
-config({ path: '.env' })
+config({ path: '.env.local' })
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
